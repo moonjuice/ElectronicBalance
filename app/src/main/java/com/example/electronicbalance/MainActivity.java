@@ -1,7 +1,5 @@
 package com.example.electronicbalance;
 
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
@@ -11,15 +9,19 @@ import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
-import android.bluetooth.le.ScanSettings;
 import android.os.Bundle;
-import android.os.ParcelUuid;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.util.Log;
+import android.widget.TextView;
 
-import java.util.ArrayList;
-import java.util.List;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
@@ -28,17 +30,41 @@ public class MainActivity extends AppCompatActivity {
     final static String SERVICE_UUID = "0000AAA1-0000-1000-8000-00805F9B34FB";
     final static String CHARACTERISTIC_UUID = "0000CCC1-0000-1000-8000-00805F9B34FB";
     final static String CLIENT_CHARACTERISTIC_CONFIG = "00002902-0000-1000-8000-00805f9b34fb";
-    private BluetoothLeScanner mBluetoothLeScanner;
+    private final Handler mainHandler = new MainHandler() {};
+    private TextView mWeightView = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        final BluetoothManager bluetoothManager = getSystemService(BluetoothManager.class);
-        if (bluetoothManager != null) {
-            BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
-            mBluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
-            mBluetoothLeScanner.startScan(leScanCallback);
+        mWeightView = findViewById(R.id.weightView);
+        mainHandler.obtainMessage(MSG_START_SCAN).sendToTarget();
+    }
+
+    private final static int MSG_START_SCAN = 0;
+    private final static int MSG_STOP_SCAN = 1;
+    private final static int MSG_UPDATE_WEIGHT = 2;
+    public class MainHandler extends Handler {
+        private BluetoothLeScanner mBluetoothLeScanner;
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+            switch (msg.what) {
+                case MSG_START_SCAN:
+                    final BluetoothManager bluetoothManager = getSystemService(BluetoothManager.class);
+                    if (bluetoothManager != null) {
+                        BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
+                        mBluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
+                        mBluetoothLeScanner.startScan(leScanCallback);
+                    }
+                    break;
+                case MSG_STOP_SCAN:
+                    mBluetoothLeScanner.stopScan(leScanCallback);
+                    break;
+                case MSG_UPDATE_WEIGHT:
+                    mWeightView.setText(String.format(getResources().getString(R.string.format_str), msg.obj));
+                    break;
+            }
         }
     }
 
@@ -49,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
             if ("0_moon".equals(result.getDevice().getName())) {
                 Log.i(TAG, result.getDevice().getName());
                 result.getDevice().connectGatt(getApplicationContext(), true, gattCallback);
-                mBluetoothLeScanner.stopScan(this);
+                mainHandler.obtainMessage(MSG_STOP_SCAN).sendToTarget();
             }
         }
     };
@@ -67,10 +93,8 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             super.onServicesDiscovered(gatt, status);
-            Log.i(TAG, "service count:" + gatt.getServices().size());
             BluetoothGattService service = gatt.getService(UUID.fromString(SERVICE_UUID));
             if (service != null) {
-                Log.i(TAG, "service UUID:" + service.getUuid().toString());
                 BluetoothGattCharacteristic data = service.getCharacteristic(UUID.fromString(CHARACTERISTIC_UUID));
                 BluetoothGattDescriptor descriptor = data.getDescriptor(UUID.fromString(CHARACTERISTIC_UUID));
                 if (null != descriptor) {
@@ -85,17 +109,15 @@ public class MainActivity extends AppCompatActivity {
                 }
                 gatt.setCharacteristicNotification(data, true);
             }
-//            for(BluetoothGattService service : gatt.getServices()){
-//                if (service.getUuid().equals(UUID.fromString(SERVICE_UUID))) {
-//
-//                }
-//            }
         }
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             super.onCharacteristicChanged(gatt, characteristic);
-            Log.i(TAG, "onCharacteristicChanged:" + characteristic.getUuid().toString());
+            Message msg = new Message();
+            msg.what = MSG_UPDATE_WEIGHT;
+            msg.obj = new String(characteristic.getValue(), StandardCharsets.UTF_8);
+            mainHandler.sendMessage(msg);
         }
     };
 }

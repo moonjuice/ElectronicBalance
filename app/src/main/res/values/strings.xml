@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">ElectronicBalance</string>
+    <string name="connecting">Connecting to a device</string>
+    <string name="format_str">%s kg</string>
 </resources>
